@@ -1,12 +1,32 @@
 import os
+import secrets
 import requests
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request, session, redirect, url_for
 from requests.auth import HTTPBasicAuth
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", secrets.token_hex(32))
+
+DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD")
+
+
+def login_required(f):
+    from functools import wraps
+
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not DASHBOARD_PASSWORD:
+            return f(*args, **kwargs)
+        if not session.get("authenticated"):
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "Unauthorized"}), 401
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+
+    return decorated
 
 ACCOUNTS = {
     "futwork1m": {
@@ -40,12 +60,33 @@ def fetch_active_streams(account):
         return {"error": str(e)}
 
 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not DASHBOARD_PASSWORD:
+        return redirect(url_for("index"))
+    error = None
+    if request.method == "POST":
+        if secrets.compare_digest(request.form.get("password", ""), DASHBOARD_PASSWORD):
+            session["authenticated"] = True
+            return redirect(url_for("index"))
+        error = "Incorrect password"
+    return render_template("login.html", error=error)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
 @app.route("/")
+@login_required
 def index():
     return render_template("index.html")
 
 
 @app.route("/api/streams")
+@login_required
 def streams():
     results = {}
     for key, account in ACCOUNTS.items():
@@ -58,6 +99,7 @@ def streams():
 
 
 @app.route("/api/streams/<account_key>")
+@login_required
 def streams_for_account(account_key):
     account = ACCOUNTS.get(account_key)
     if not account:

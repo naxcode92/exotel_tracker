@@ -240,6 +240,7 @@
         <div class="header-right">
             <div class="status-dot" id="statusDot"></div>
             <span class="refresh-info" id="refreshInfo">Loading...</span>
+            <a href="/logout" style="color:#94a3b8;font-size:13px;text-decoration:none;padding:6px 12px;border:1px solid #334155;border-radius:6px;">Logout</a>
         </div>
     </div>
 
@@ -356,6 +357,7 @@
         async function fetchStreams() {
             try {
                 const resp = await fetch('/api/streams');
+                if (resp.status === 401) { window.location.href = '/login'; return; }
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
 
