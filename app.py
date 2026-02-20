@@ -1,8 +1,15 @@
 import os
+import sqlite3
 import secrets
+import logging
+from datetime import datetime, timedelta, timezone
+from functools import wraps
+
 import requests
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for
 from requests.auth import HTTPBasicAuth
+from authlib.integrations.flask_client import OAuth
+from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -10,24 +17,27 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", secrets.token_hex(32))
 
-DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD")
+logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Google OAuth config
+# ---------------------------------------------------------------------------
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+ALLOWED_DOMAIN = os.getenv("ALLOWED_DOMAIN", "futwork.com")
 
-def login_required(f):
-    from functools import wraps
+oauth = OAuth(app)
+google = oauth.register(
+    name="google",
+    client_id=GOOGLE_CLIENT_ID,
+    client_secret=GOOGLE_CLIENT_SECRET,
+    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+    client_kwargs={"scope": "openid email profile"},
+)
 
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not DASHBOARD_PASSWORD:
-            return f(*args, **kwargs)
-        if not session.get("authenticated"):
-            if request.path.startswith("/api/"):
-                return jsonify({"error": "Unauthorized"}), 401
-            return redirect(url_for("login"))
-        return f(*args, **kwargs)
-
-    return decorated
-
+# ---------------------------------------------------------------------------
+# Exotel accounts
+# ---------------------------------------------------------------------------
 ACCOUNTS = {
     "futwork1m": {
         "label": "Futwork 1M",
@@ -45,7 +55,51 @@ ACCOUNTS = {
 
 EXOTEL_BASE_URL = "https://api.in.exotel.com/v1/Accounts"
 
+# ---------------------------------------------------------------------------
+# SQLite for stream-count history
+# ---------------------------------------------------------------------------
+DB_PATH = os.getenv("DB_PATH", "/tmp/streams_history.db")
 
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS stream_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT NOT NULL,
+            account_key TEXT NOT NULL,
+            stream_count INTEGER NOT NULL
+        )"""
+    )
+    conn.commit()
+    return conn
+
+
+# initialise table on startup
+get_db().close()
+
+
+# ---------------------------------------------------------------------------
+# Auth decorator
+# ---------------------------------------------------------------------------
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not GOOGLE_CLIENT_ID:
+            # No OAuth configured — allow open access (local dev)
+            return f(*args, **kwargs)
+        if not session.get("user"):
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "Unauthorized"}), 401
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+
+    return decorated
+
+
+# ---------------------------------------------------------------------------
+# Exotel API helper
+# ---------------------------------------------------------------------------
 def fetch_active_streams(account):
     url = f"{EXOTEL_BASE_URL}/{account['sid']}/ActiveStreams.json"
     try:
@@ -63,17 +117,79 @@ def fetch_active_streams(account):
         return {"error": str(e)}
 
 
-@app.route("/login", methods=["GET", "POST"])
+def count_streams(data):
+    """Extract stream count from an Exotel API response dict."""
+    if data.get("error"):
+        return 0
+    for wrapper in [data, data.get("TelephonyResponse", {})]:
+        active = wrapper.get("ActiveStreams")
+        if active:
+            streams = active.get("Stream")
+            if not streams:
+                return 0
+            return len(streams) if isinstance(streams, list) else 1
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Background job — log stream counts every minute
+# ---------------------------------------------------------------------------
+def log_stream_counts():
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        conn = get_db()
+        for key, account in ACCOUNTS.items():
+            data = fetch_active_streams(account)
+            count = count_streams(data)
+            conn.execute(
+                "INSERT INTO stream_log (ts, account_key, stream_count) VALUES (?, ?, ?)",
+                (now, key, count),
+            )
+        # Prune entries older than 48 hours
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        conn.execute("DELETE FROM stream_log WHERE ts < ?", (cutoff,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        logger.exception("Failed to log stream counts")
+
+
+scheduler = BackgroundScheduler(daemon=True)
+scheduler.add_job(log_stream_counts, "interval", minutes=1, misfire_grace_time=30)
+scheduler.start()
+
+# Log once at startup so the graph isn't empty
+log_stream_counts()
+
+
+# ---------------------------------------------------------------------------
+# Routes — Auth
+# ---------------------------------------------------------------------------
+@app.route("/login")
 def login():
-    if not DASHBOARD_PASSWORD:
+    if not GOOGLE_CLIENT_ID:
         return redirect(url_for("index"))
-    error = None
-    if request.method == "POST":
-        if secrets.compare_digest(request.form.get("password", ""), DASHBOARD_PASSWORD):
-            session["authenticated"] = True
-            return redirect(url_for("index"))
-        error = "Incorrect password"
-    return render_template("login.html", error=error)
+    redirect_uri = url_for("auth_callback", _external=True)
+    return google.authorize_redirect(redirect_uri)
+
+
+@app.route("/auth/callback")
+def auth_callback():
+    token = google.authorize_access_token()
+    user_info = token.get("userinfo") or google.userinfo()
+    email = user_info.get("email", "")
+
+    if not email.endswith(f"@{ALLOWED_DOMAIN}"):
+        return render_template("login_error.html", email=email, domain=ALLOWED_DOMAIN), 403
+
+    session["user"] = {
+        "email": email,
+        "name": user_info.get("name", email),
+        "picture": user_info.get("picture", ""),
+    }
+    return redirect(url_for("index"))
 
 
 @app.route("/logout")
@@ -82,12 +198,19 @@ def logout():
     return redirect(url_for("login"))
 
 
+# ---------------------------------------------------------------------------
+# Routes — Dashboard
+# ---------------------------------------------------------------------------
 @app.route("/")
 @login_required
 def index():
-    return render_template("index.html")
+    user = session.get("user", {})
+    return render_template("index.html", user=user)
 
 
+# ---------------------------------------------------------------------------
+# Routes — API
+# ---------------------------------------------------------------------------
 @app.route("/api/streams")
 @login_required
 def streams():
@@ -111,6 +234,30 @@ def streams_for_account(account_key):
     return jsonify({"label": account["label"], "data": data})
 
 
+@app.route("/api/history")
+@login_required
+def history():
+    hours = min(int(request.args.get("hours", 24)), 48)
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT ts, account_key, stream_count FROM stream_log WHERE ts >= ? ORDER BY ts",
+        (cutoff,),
+    ).fetchall()
+    conn.close()
+
+    # Group by account
+    result = {}
+    for ts, account_key, count in rows:
+        result.setdefault(account_key, []).append({"ts": ts, "count": count})
+    return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     app.run(debug=True, host="0.0.0.0", port=port)

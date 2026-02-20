@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Exotel Live Streams Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -35,6 +36,20 @@
             gap: 16px;
         }
 
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #94a3b8;
+        }
+
+        .user-info img {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+        }
+
         .status-dot {
             width: 10px;
             height: 10px;
@@ -54,6 +69,17 @@
             font-size: 13px;
             color: #94a3b8;
         }
+
+        .btn-logout {
+            color: #94a3b8;
+            font-size: 13px;
+            text-decoration: none;
+            padding: 6px 12px;
+            border: 1px solid #334155;
+            border-radius: 6px;
+        }
+
+        .btn-logout:hover { color: #e2e8f0; border-color: #64748b; }
 
         .container {
             max-width: 1200px;
@@ -97,6 +123,53 @@
 
         .summary-card.total .summary-value { color: #60a5fa; }
 
+        .chart-section {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 32px;
+        }
+
+        .chart-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .chart-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #f1f5f9;
+        }
+
+        .chart-controls {
+            display: flex;
+            gap: 8px;
+        }
+
+        .chart-controls button {
+            background: #0f172a;
+            border: 1px solid #334155;
+            color: #94a3b8;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .chart-controls button.active {
+            background: #3b82f6;
+            border-color: #3b82f6;
+            color: #fff;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 280px;
+        }
+
         .accounts {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
@@ -139,42 +212,6 @@
             padding: 16px 24px;
             max-height: 400px;
             overflow-y: auto;
-        }
-
-        .stream-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 12px 0;
-            border-bottom: 1px solid #1e293b;
-        }
-
-        .stream-item:last-child { border-bottom: none; }
-
-        .stream-sid {
-            font-family: 'SF Mono', 'Fira Code', monospace;
-            font-size: 13px;
-            color: #60a5fa;
-        }
-
-        .stream-detail {
-            font-size: 12px;
-            color: #94a3b8;
-        }
-
-        .stream-status {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 12px;
-            color: #22c55e;
-        }
-
-        .stream-status .dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: #22c55e;
         }
 
         .empty-state {
@@ -240,7 +277,13 @@
         <div class="header-right">
             <div class="status-dot" id="statusDot"></div>
             <span class="refresh-info" id="refreshInfo">Loading...</span>
-            <a href="/logout" style="color:#94a3b8;font-size:13px;text-decoration:none;padding:6px 12px;border:1px solid #334155;border-radius:6px;">Logout</a>
+            {% if user and user.picture %}
+            <div class="user-info">
+                <img src="{{ user.picture }}" alt="">
+                <span>{{ user.name }}</span>
+            </div>
+            {% endif %}
+            <a href="/logout" class="btn-logout">Logout</a>
         </div>
     </div>
 
@@ -260,6 +303,21 @@
             </div>
         </div>
 
+        <!-- 24-hour history chart -->
+        <div class="chart-section">
+            <div class="chart-header">
+                <span class="chart-title">Stream Count History</span>
+                <div class="chart-controls">
+                    <button onclick="loadHistory(1)" id="btn1h">1H</button>
+                    <button onclick="loadHistory(6)" id="btn6h">6H</button>
+                    <button onclick="loadHistory(24)" class="active" id="btn24h">24H</button>
+                </div>
+            </div>
+            <div class="chart-container">
+                <canvas id="historyChart"></canvas>
+            </div>
+        </div>
+
         <div class="accounts" id="accountsContainer">
             <div class="loading">
                 <div class="spinner"></div>
@@ -269,15 +327,85 @@
     </div>
 
     <script>
-        const REFRESH_INTERVAL = 15000; // 15 seconds
+        const REFRESH_INTERVAL = 15000;
         let lastUpdated = null;
+        let historyChart = null;
+        let currentHours = 24;
 
         function formatTime(date) {
             return date.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' });
         }
 
+        // ---------------------------------------------------------------
+        // History chart
+        // ---------------------------------------------------------------
+        const COLORS = {
+            futwork1m:  { line: '#3b82f6', fill: 'rgba(59,130,246,0.1)' },
+            futwork12m: { line: '#22c55e', fill: 'rgba(34,197,94,0.1)' },
+        };
+        const LABELS = { futwork1m: 'Futwork 1M', futwork12m: 'Futwork 12M' };
+
+        async function loadHistory(hours) {
+            currentHours = hours;
+            document.querySelectorAll('.chart-controls button').forEach(b => b.classList.remove('active'));
+            const btn = document.getElementById(`btn${hours}h`);
+            if (btn) btn.classList.add('active');
+
+            try {
+                const resp = await fetch(`/api/history?hours=${hours}`);
+                if (resp.status === 401) { window.location.href = '/login'; return; }
+                const data = await resp.json();
+
+                const datasets = [];
+                for (const [key, points] of Object.entries(data)) {
+                    datasets.push({
+                        label: LABELS[key] || key,
+                        data: points.map(p => ({ x: p.ts + 'Z', y: p.count })),
+                        borderColor: (COLORS[key] || COLORS.futwork1m).line,
+                        backgroundColor: (COLORS[key] || COLORS.futwork1m).fill,
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 0,
+                        borderWidth: 2,
+                    });
+                }
+
+                if (historyChart) historyChart.destroy();
+
+                historyChart = new Chart(document.getElementById('historyChart'), {
+                    type: 'line',
+                    data: { datasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        scales: {
+                            x: {
+                                type: 'time',
+                                time: { tooltipFormat: 'MMM d, HH:mm' },
+                                grid: { color: 'rgba(51,65,85,0.4)' },
+                                ticks: { color: '#64748b', maxTicksLimit: 12 },
+                            },
+                            y: {
+                                beginAtZero: true,
+                                grid: { color: 'rgba(51,65,85,0.4)' },
+                                ticks: { color: '#64748b', stepSize: 1 },
+                            }
+                        },
+                        plugins: {
+                            legend: { labels: { color: '#94a3b8' } },
+                        }
+                    }
+                });
+            } catch (e) {
+                console.error('Failed to load history', e);
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Live streams
+        // ---------------------------------------------------------------
         function parseStreams(data) {
-            // Handle different response formats from Exotel
             if (data.error) return { error: data.error, streams: [] };
             if (data.ActiveStreams) {
                 const streams = data.ActiveStreams.Stream;
@@ -289,7 +417,6 @@
                 if (!streams) return { streams: [] };
                 return { streams: Array.isArray(streams) ? streams : [streams] };
             }
-            // If response has a count or similar field
             if (typeof data === 'object' && !Array.isArray(data)) {
                 return { streams: [], raw: data };
             }
@@ -371,7 +498,6 @@
 
                     cardsHtml += renderAccountCard(key, account.label, parsed);
 
-                    // Update individual counts
                     const countEl = document.getElementById(`${key}Count`);
                     if (countEl) countEl.textContent = parsed.error ? '!' : count;
                 }
@@ -388,11 +514,13 @@
             }
         }
 
-        // Initial fetch
+        // Initial load
         fetchStreams();
+        loadHistory(24);
 
-        // Auto-refresh
+        // Auto-refresh streams every 15s, chart every 5 min
         setInterval(fetchStreams, REFRESH_INTERVAL);
+        setInterval(() => loadHistory(currentHours), 300000);
 
         // Countdown display
         setInterval(() => {
@@ -403,5 +531,6 @@
                 `Last updated: ${formatTime(lastUpdated)} (refresh in ${remaining}s)`;
         }, 1000);
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
 </body>
 </html>
