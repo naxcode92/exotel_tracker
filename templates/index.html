@@ -123,6 +123,17 @@
 
         .summary-card.total .summary-value { color: #60a5fa; }
 
+        .summary-peak {
+            font-size: 13px;
+            color: #94a3b8;
+            margin-top: 6px;
+        }
+
+        .summary-peak span {
+            color: #f59e0b;
+            font-weight: 600;
+        }
+
         .chart-section {
             background: #1e293b;
             border: 1px solid #334155;
@@ -296,10 +307,12 @@
             <div class="summary-card">
                 <div class="summary-label">Futwork 1M</div>
                 <div class="summary-value" id="futwork1mCount">-</div>
+                <div class="summary-peak">24h Peak: <span id="futwork1mPeak">-</span></div>
             </div>
             <div class="summary-card">
                 <div class="summary-label">Futwork 12M</div>
                 <div class="summary-value" id="futwork12mCount">-</div>
+                <div class="summary-peak">24h Peak: <span id="futwork12mPeak">-</span></div>
             </div>
         </div>
 
@@ -344,6 +357,21 @@
             futwork12m: { line: '#22c55e', fill: 'rgba(34,197,94,0.1)' },
         };
         const LABELS = { futwork1m: 'Futwork 1M', futwork12m: 'Futwork 12M' };
+
+        async function loadPeaks() {
+            try {
+                const resp = await fetch('/api/history?hours=24');
+                if (resp.status === 401) return;
+                const data = await resp.json();
+                for (const [key, points] of Object.entries(data)) {
+                    const peak = Math.max(0, ...points.map(p => p.count));
+                    const el = document.getElementById(`${key}Peak`);
+                    if (el) el.textContent = peak;
+                }
+            } catch (e) {
+                console.error('Failed to load peaks', e);
+            }
+        }
 
         async function loadHistory(hours) {
             currentHours = hours;
@@ -523,10 +551,12 @@
         // Initial load
         fetchStreams();
         loadHistory(24);
+        loadPeaks();
 
-        // Auto-refresh streams every 15s, chart every 5 min
+        // Auto-refresh streams every 15s, chart every 5 min, peaks every 5 min
         setInterval(fetchStreams, REFRESH_INTERVAL);
         setInterval(() => loadHistory(currentHours), 300000);
+        setInterval(loadPeaks, 300000);
 
         // Countdown display
         setInterval(() => {
