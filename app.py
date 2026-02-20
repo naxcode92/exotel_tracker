@@ -47,15 +47,18 @@ EXOTEL_BASE_URL = "https://api.in.exotel.com/v1/Accounts"
 
 
 def fetch_active_streams(account):
-    url = f"{EXOTEL_BASE_URL}/{account['sid']}/ActiveStreams"
+    url = f"{EXOTEL_BASE_URL}/{account['sid']}/ActiveStreams.json"
     try:
         resp = requests.get(
             url,
             auth=HTTPBasicAuth(account["api_key"], account["api_token"]),
+            headers={"Accept": "application/json"},
             timeout=10,
         )
         resp.raise_for_status()
         return resp.json()
+    except ValueError:
+        return {"error": "Invalid response from Exotel API"}
     except requests.RequestException as e:
         return {"error": str(e)}
 
