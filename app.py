@@ -7,6 +7,7 @@ from functools import wraps
 
 import requests
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 from requests.auth import HTTPBasicAuth
 from authlib.integrations.flask_client import OAuth
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -15,6 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.secret_key = os.getenv("SECRET_KEY", secrets.token_hex(32))
 
 logger = logging.getLogger(__name__)
