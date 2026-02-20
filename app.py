@@ -19,7 +19,21 @@ app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.secret_key = os.getenv("SECRET_KEY", secrets.token_hex(32))
 
+# -- Security: cookie hardening --
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
 logger = logging.getLogger(__name__)
+
+
+@app.after_request
+def set_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
 
 # ---------------------------------------------------------------------------
 # Google OAuth config
@@ -116,7 +130,8 @@ def fetch_active_streams(account):
     except ValueError:
         return {"error": "Invalid response from Exotel API"}
     except requests.RequestException as e:
-        return {"error": str(e)}
+        logger.error("Exotel API error for %s: %s", account["sid"], e)
+        return {"error": "Failed to reach Exotel API"}
 
 
 def count_streams(data):
@@ -239,7 +254,10 @@ def streams_for_account(account_key):
 @app.route("/api/history")
 @login_required
 def history():
-    hours = min(int(request.args.get("hours", 24)), 48)
+    try:
+        hours = min(int(request.args.get("hours", 24)), 48)
+    except (ValueError, TypeError):
+        hours = 24
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime(
         "%Y-%m-%d %H:%M:%S"
     )
@@ -262,4 +280,4 @@ def history():
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
-    app.run(debug=True, host="0.0.0.0", port=port)
+    app.run(debug=os.getenv("FLASK_DEBUG", "false").lower() == "true", host="0.0.0.0", port=port)

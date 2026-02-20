@@ -423,6 +423,12 @@
             return { streams: [] };
         }
 
+        function esc(str) {
+            const d = document.createElement('div');
+            d.textContent = String(str ?? '');
+            return d.innerHTML;
+        }
+
         function renderAccountCard(key, label, parsed) {
             const count = parsed.streams ? parsed.streams.length : 0;
             const hasError = !!parsed.error;
@@ -433,7 +439,7 @@
 
             let bodyHtml = '';
             if (hasError) {
-                bodyHtml = `<div class="error-state">${parsed.error}</div>`;
+                bodyHtml = `<div class="error-state">${esc(parsed.error)}</div>`;
             } else if (count === 0) {
                 let rawInfo = '';
                 if (parsed.raw) {
@@ -455,13 +461,13 @@
                             <tbody>
                                 ${parsed.streams.map(s => `
                                     <tr>
-                                        <td><span class="stream-sid">${s.Sid || s.sid || '-'}</span></td>
-                                        <td>${s.From || s.from || '-'}</td>
-                                        <td>${s.To || s.to || '-'}</td>
+                                        <td><span class="stream-sid">${esc(s.Sid || s.sid || '-')}</span></td>
+                                        <td>${esc(s.From || s.from || '-')}</td>
+                                        <td>${esc(s.To || s.to || '-')}</td>
                                         <td>
                                             <span class="stream-status">
                                                 <span class="dot"></span>
-                                                ${s.Status || s.status || 'live'}
+                                                ${esc(s.Status || s.status || 'live')}
                                             </span>
                                         </td>
                                     </tr>
@@ -474,8 +480,8 @@
             return `
                 <div class="account-card">
                     <div class="account-header">
-                        <span class="account-name">${label}</span>
-                        <span class="stream-badge ${badgeClass}">${badgeText}</span>
+                        <span class="account-name">${esc(label)}</span>
+                        <span class="stream-badge ${badgeClass}">${esc(badgeText)}</span>
                     </div>
                     ${bodyHtml}
                 </div>`;
