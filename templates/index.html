@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exotel Live Streams Tracker</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            padding: 20px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .header h1 {
+            font-size: 22px;
+            font-weight: 600;
+            color: #f1f5f9;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #22c55e;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.error { background: #ef4444; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .refresh-info {
+            font-size: 13px;
+            color: #94a3b8;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 32px;
+        }
+
+        .summary-bar {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 32px;
+        }
+
+        .summary-card {
+            flex: 1;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+        }
+
+        .summary-card.total {
+            background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%);
+            border-color: #3b82f6;
+        }
+
+        .summary-label {
+            font-size: 13px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .summary-value {
+            font-size: 48px;
+            font-weight: 700;
+            color: #f1f5f9;
+        }
+
+        .summary-card.total .summary-value { color: #60a5fa; }
+
+        .accounts {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 24px;
+        }
+
+        .account-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .account-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .account-name {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .stream-badge {
+            background: #22c55e;
+            color: #fff;
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .stream-badge.zero { background: #64748b; }
+        .stream-badge.error { background: #ef4444; }
+
+        .stream-list {
+            padding: 16px 24px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .stream-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #1e293b;
+        }
+
+        .stream-item:last-child { border-bottom: none; }
+
+        .stream-sid {
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 13px;
+            color: #60a5fa;
+        }
+
+        .stream-detail {
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        .stream-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #22c55e;
+        }
+
+        .stream-status .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #22c55e;
+        }
+
+        .empty-state {
+            padding: 40px 24px;
+            text-align: center;
+            color: #64748b;
+            font-size: 14px;
+        }
+
+        .error-state {
+            padding: 20px 24px;
+            text-align: center;
+            color: #ef4444;
+            font-size: 14px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #64748b;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border: 3px solid #334155;
+            border-top-color: #3b82f6;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 12px;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #64748b;
+            padding: 12px 16px;
+            border-bottom: 1px solid #334155;
+        }
+
+        td {
+            padding: 12px 16px;
+            font-size: 13px;
+            border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+        }
+
+        tr:hover td { background: rgba(51, 65, 85, 0.3); }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Exotel Live Streams Tracker</h1>
+        <div class="header-right">
+            <div class="status-dot" id="statusDot"></div>
+            <span class="refresh-info" id="refreshInfo">Loading...</span>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="summary-bar">
+            <div class="summary-card total">
+                <div class="summary-label">Total Active Streams</div>
+                <div class="summary-value" id="totalStreams">-</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-label">Futwork 1M</div>
+                <div class="summary-value" id="futwork1mCount">-</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-label">Futwork 12M</div>
+                <div class="summary-value" id="futwork12mCount">-</div>
+            </div>
+        </div>
+
+        <div class="accounts" id="accountsContainer">
+            <div class="loading">
+                <div class="spinner"></div>
+                <div>Fetching stream data...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const REFRESH_INTERVAL = 15000; // 15 seconds
+        let lastUpdated = null;
+
+        function formatTime(date) {
+            return date.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+
+        function parseStreams(data) {
+            // Handle different response formats from Exotel
+            if (data.error) return { error: data.error, streams: [] };
+            if (data.ActiveStreams) {
+                const streams = data.ActiveStreams.Stream;
+                if (!streams) return { streams: [] };
+                return { streams: Array.isArray(streams) ? streams : [streams] };
+            }
+            if (data.TelephonyResponse && data.TelephonyResponse.ActiveStreams) {
+                const streams = data.TelephonyResponse.ActiveStreams.Stream;
+                if (!streams) return { streams: [] };
+                return { streams: Array.isArray(streams) ? streams : [streams] };
+            }
+            // If response has a count or similar field
+            if (typeof data === 'object' && !Array.isArray(data)) {
+                return { streams: [], raw: data };
+            }
+            return { streams: [] };
+        }
+
+        function renderAccountCard(key, label, parsed) {
+            const count = parsed.streams ? parsed.streams.length : 0;
+            const hasError = !!parsed.error;
+
+            let badgeClass = count > 0 ? '' : 'zero';
+            if (hasError) badgeClass = 'error';
+            const badgeText = hasError ? 'Error' : `${count} active`;
+
+            let bodyHtml = '';
+            if (hasError) {
+                bodyHtml = `<div class="error-state">${parsed.error}</div>`;
+            } else if (count === 0) {
+                let rawInfo = '';
+                if (parsed.raw) {
+                    rawInfo = `<br><pre style="text-align:left;font-size:12px;color:#64748b;margin-top:12px;white-space:pre-wrap;">${JSON.stringify(parsed.raw, null, 2)}</pre>`;
+                }
+                bodyHtml = `<div class="empty-state">No active streams${rawInfo}</div>`;
+            } else {
+                bodyHtml = `
+                    <div class="stream-list">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Stream SID</th>
+                                    <th>From</th>
+                                    <th>To</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${parsed.streams.map(s => `
+                                    <tr>
+                                        <td><span class="stream-sid">${s.Sid || s.sid || '-'}</span></td>
+                                        <td>${s.From || s.from || '-'}</td>
+                                        <td>${s.To || s.to || '-'}</td>
+                                        <td>
+                                            <span class="stream-status">
+                                                <span class="dot"></span>
+                                                ${s.Status || s.status || 'live'}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>`;
+            }
+
+            return `
+                <div class="account-card">
+                    <div class="account-header">
+                        <span class="account-name">${label}</span>
+                        <span class="stream-badge ${badgeClass}">${badgeText}</span>
+                    </div>
+                    ${bodyHtml}
+                </div>`;
+        }
+
+        async function fetchStreams() {
+            try {
+                const resp = await fetch('/api/streams');
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
+
+                let totalCount = 0;
+                let cardsHtml = '';
+
+                for (const [key, account] of Object.entries(data)) {
+                    const parsed = parseStreams(account.data);
+                    const count = parsed.streams ? parsed.streams.length : 0;
+                    totalCount += count;
+
+                    cardsHtml += renderAccountCard(key, account.label, parsed);
+
+                    // Update individual counts
+                    const countEl = document.getElementById(`${key}Count`);
+                    if (countEl) countEl.textContent = parsed.error ? '!' : count;
+                }
+
+                document.getElementById('totalStreams').textContent = totalCount;
+                document.getElementById('accountsContainer').innerHTML = cardsHtml;
+
+                lastUpdated = new Date();
+                document.getElementById('statusDot').className = 'status-dot';
+                document.getElementById('refreshInfo').textContent = `Last updated: ${formatTime(lastUpdated)}`;
+            } catch (err) {
+                document.getElementById('statusDot').className = 'status-dot error';
+                document.getElementById('refreshInfo').textContent = `Error: ${err.message}`;
+            }
+        }
+
+        // Initial fetch
+        fetchStreams();
+
+        // Auto-refresh
+        setInterval(fetchStreams, REFRESH_INTERVAL);
+
+        // Countdown display
+        setInterval(() => {
+            if (!lastUpdated) return;
+            const elapsed = Math.floor((Date.now() - lastUpdated.getTime()) / 1000);
+            const remaining = Math.max(0, Math.floor(REFRESH_INTERVAL / 1000) - elapsed);
+            document.getElementById('refreshInfo').textContent =
+                `Last updated: ${formatTime(lastUpdated)} (refresh in ${remaining}s)`;
+        }, 1000);
+    </script>
+</body>
+</html>
