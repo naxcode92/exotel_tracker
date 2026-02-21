@@ -311,6 +311,23 @@ def peaks():
     return jsonify({key: peak for key, peak in rows})
 
 
+@app.route("/api/log")
+@login_required
+def stream_log():
+    """Return recent stream_log rows for the table view."""
+    try:
+        limit = min(int(request.args.get("limit", 100)), 500)
+    except (ValueError, TypeError):
+        limit = 100
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT ts, account_key, stream_count FROM stream_log ORDER BY ts DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return jsonify([{"ts": ts, "account": acc, "count": cnt} for ts, acc, cnt in rows])
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------

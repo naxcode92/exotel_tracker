@@ -331,6 +331,32 @@
             </div>
         </div>
 
+        <!-- Stream log table -->
+        <div class="chart-section">
+            <div class="chart-header">
+                <span class="chart-title">Stream Log</span>
+                <div class="chart-controls">
+                    <button onclick="loadLog(50)" id="btnLog50" class="active">50</button>
+                    <button onclick="loadLog(100)" id="btnLog100">100</button>
+                    <button onclick="loadLog(200)" id="btnLog200">200</button>
+                </div>
+            </div>
+            <div class="stream-list" style="max-height:360px;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Timestamp (UTC)</th>
+                            <th>Account</th>
+                            <th>Stream Count</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logTableBody">
+                        <tr><td colspan="3" style="text-align:center;color:#64748b;">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <div class="accounts" id="accountsContainer">
             <div class="loading">
                 <div class="spinner"></div>
@@ -426,6 +452,36 @@
                 });
             } catch (e) {
                 console.error('Failed to load history', e);
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Stream log table
+        // ---------------------------------------------------------------
+        let currentLogLimit = 50;
+
+        async function loadLog(limit) {
+            currentLogLimit = limit || currentLogLimit;
+            document.querySelectorAll('.chart-controls button[id^="btnLog"]').forEach(b => b.classList.remove('active'));
+            const btn = document.getElementById(`btnLog${currentLogLimit}`);
+            if (btn) btn.classList.add('active');
+
+            try {
+                const resp = await fetch(`/api/log?limit=${currentLogLimit}`);
+                if (resp.status === 401) return;
+                const rows = await resp.json();
+                const tbody = document.getElementById('logTableBody');
+                if (!rows.length) {
+                    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#64748b;">No log entries yet</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = rows.map(r => `<tr>
+                    <td>${esc(r.ts)}</td>
+                    <td>${esc(LABELS[r.account] || r.account)}</td>
+                    <td>${esc(r.count)}</td>
+                </tr>`).join('');
+            } catch (e) {
+                console.error('Failed to load log', e);
             }
         }
 
@@ -551,10 +607,11 @@
         fetchStreams();
         loadHistory(24);
         loadPeaks();
+        loadLog(50);
 
-        // Auto-refresh streams every 15s, chart & peaks every 30s
+        // Auto-refresh streams every 15s, chart & peaks & log every 30s
         setInterval(fetchStreams, REFRESH_INTERVAL);
-        setInterval(() => { loadHistory(currentHours); loadPeaks(); }, 30000);
+        setInterval(() => { loadHistory(currentHours); loadPeaks(); loadLog(); }, 30000);
 
         // Countdown display
         setInterval(() => {
