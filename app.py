@@ -177,7 +177,7 @@ def log_stream_counts():
 
 
 scheduler = BackgroundScheduler(daemon=True)
-scheduler.add_job(log_stream_counts, "interval", minutes=1, misfire_grace_time=30)
+scheduler.add_job(log_stream_counts, "interval", minutes=5, misfire_grace_time=60)
 scheduler.start()
 
 # Log once at startup so the graph isn't empty
@@ -234,13 +234,30 @@ def index():
 @app.route("/api/streams")
 @login_required
 def streams():
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     results = {}
+    counts = {}
     for key, account in ACCOUNTS.items():
         data = fetch_active_streams(account)
         results[key] = {
             "label": account["label"],
             "data": data,
         }
+        counts[key] = count_streams(data)
+
+    # Log counts to DB on every fetch so history builds up in real time
+    try:
+        conn = get_db()
+        for key, count in counts.items():
+            conn.execute(
+                "INSERT INTO stream_log (ts, account_key, stream_count) VALUES (?, ?, ?)",
+                (now, key, count),
+            )
+        conn.commit()
+        conn.close()
+    except Exception:
+        logger.exception("Failed to log stream counts from /api/streams")
+
     return jsonify(results)
 
 

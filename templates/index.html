@@ -552,10 +552,9 @@
         loadHistory(24);
         loadPeaks();
 
-        // Auto-refresh streams every 15s, chart every 5 min, peaks every 5 min
+        // Auto-refresh streams every 15s, chart & peaks every 30s
         setInterval(fetchStreams, REFRESH_INTERVAL);
-        setInterval(() => loadHistory(currentHours), 300000);
-        setInterval(loadPeaks, 300000);
+        setInterval(() => { loadHistory(currentHours); loadPeaks(); }, 30000);
 
         // Countdown display
         setInterval(() => {
