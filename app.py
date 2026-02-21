@@ -74,7 +74,7 @@ EXOTEL_BASE_URL = "https://api.in.exotel.com/v1/Accounts"
 # ---------------------------------------------------------------------------
 # SQLite for stream-count history
 # ---------------------------------------------------------------------------
-DB_PATH = os.getenv("DB_PATH", "/tmp/streams_history.db")
+DB_PATH = os.getenv("DB_PATH", os.path.join(os.path.dirname(__file__), "data", "streams_history.db"))
 
 
 def get_db():
@@ -86,6 +86,9 @@ def get_db():
             account_key TEXT NOT NULL,
             stream_count INTEGER NOT NULL
         )"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_stream_log_ts ON stream_log (ts, account_key)"
     )
     conn.commit()
     return conn
@@ -273,6 +276,22 @@ def history():
     for ts, account_key, count in rows:
         result.setdefault(account_key, []).append({"ts": ts, "count": count})
     return jsonify(result)
+
+
+@app.route("/api/peaks")
+@login_required
+def peaks():
+    """Return the highest stream count per account in the last 24 hours."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT account_key, MAX(stream_count) FROM stream_log WHERE ts >= ? GROUP BY account_key",
+        (cutoff,),
+    ).fetchall()
+    conn.close()
+    return jsonify({key: peak for key, peak in rows})
 
 
 # ---------------------------------------------------------------------------

@@ -360,11 +360,10 @@
 
         async function loadPeaks() {
             try {
-                const resp = await fetch('/api/history?hours=24');
+                const resp = await fetch('/api/peaks');
                 if (resp.status === 401) return;
                 const data = await resp.json();
-                for (const [key, points] of Object.entries(data)) {
-                    const peak = Math.max(0, ...points.map(p => p.count));
+                for (const [key, peak] of Object.entries(data)) {
                     const el = document.getElementById(`${key}Peak`);
                     if (el) el.textContent = peak;
                 }
