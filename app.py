@@ -177,7 +177,7 @@ def log_stream_counts():
 
 
 scheduler = BackgroundScheduler(daemon=True)
-scheduler.add_job(log_stream_counts, "interval", minutes=5, misfire_grace_time=60)
+scheduler.add_job(log_stream_counts, "interval", minutes=1, misfire_grace_time=30)
 scheduler.start()
 
 # Log once at startup so the graph isn't empty
