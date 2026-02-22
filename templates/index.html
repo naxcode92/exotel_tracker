@@ -510,21 +510,37 @@
         // Live streams
         // ---------------------------------------------------------------
         function parseStreams(data) {
-            if (data.error) return { error: data.error, streams: [] };
-            if (data.ActiveStreams) {
-                const streams = data.ActiveStreams.Stream;
-                if (!streams) return { streams: [] };
-                return { streams: Array.isArray(streams) ? streams : [streams] };
+            if (data.error) return { error: data.error, streams: [], count: 0 };
+
+            const wrappers = [data];
+            if (data.TelephonyResponse) wrappers.push(data.TelephonyResponse);
+
+            for (const wrapper of wrappers) {
+                const active = wrapper.ActiveStreams;
+                if (active) {
+                    // Prefer the actual Stream list when available
+                    const streams = active.Stream;
+                    if (streams) {
+                        const arr = Array.isArray(streams) ? streams : [streams];
+                        return { streams: arr, count: arr.length };
+                    }
+                    // Fallback: use ActiveStreamCount field
+                    const asc = parseInt(active.ActiveStreamCount);
+                    if (!isNaN(asc) && asc > 0) {
+                        return { streams: [], count: asc, countOnly: true };
+                    }
+                }
+                // Also check ActiveStreamCount at the wrapper level
+                const wsc = parseInt(wrapper.ActiveStreamCount);
+                if (!isNaN(wsc) && wsc > 0) {
+                    return { streams: [], count: wsc, countOnly: true };
+                }
             }
-            if (data.TelephonyResponse && data.TelephonyResponse.ActiveStreams) {
-                const streams = data.TelephonyResponse.ActiveStreams.Stream;
-                if (!streams) return { streams: [] };
-                return { streams: Array.isArray(streams) ? streams : [streams] };
-            }
+
             if (typeof data === 'object' && !Array.isArray(data)) {
-                return { streams: [], raw: data };
+                return { streams: [], count: 0, raw: data };
             }
-            return { streams: [] };
+            return { streams: [], count: 0 };
         }
 
         function esc(str) {
@@ -534,7 +550,7 @@
         }
 
         function renderAccountCard(key, label, parsed) {
-            const count = parsed.streams ? parsed.streams.length : 0;
+            const count = parsed.count != null ? parsed.count : (parsed.streams ? parsed.streams.length : 0);
             const hasError = !!parsed.error;
 
             let badgeClass = count > 0 ? '' : 'zero';
@@ -550,6 +566,8 @@
                     rawInfo = `<br><pre style="text-align:left;font-size:12px;color:#64748b;margin-top:12px;white-space:pre-wrap;">${JSON.stringify(parsed.raw, null, 2)}</pre>`;
                 }
                 bodyHtml = `<div class="empty-state">No active streams${rawInfo}</div>`;
+            } else if (parsed.countOnly) {
+                bodyHtml = `<div class="empty-state" style="color:#94a3b8;">${count} active stream${count !== 1 ? 's' : ''} (stream details not available from API)</div>`;
             } else {
                 bodyHtml = `
                     <div class="stream-list">
@@ -603,7 +621,7 @@
 
                 for (const [key, account] of Object.entries(data)) {
                     const parsed = parseStreams(account.data);
-                    const count = parsed.streams ? parsed.streams.length : 0;
+                    const count = parsed.count != null ? parsed.count : (parsed.streams ? parsed.streams.length : 0);
                     totalCount += count;
 
                     cardsHtml += renderAccountCard(key, account.label, parsed);

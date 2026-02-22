@@ -156,10 +156,24 @@ def count_streams(data):
     for wrapper in [data, data.get("TelephonyResponse", {})]:
         active = wrapper.get("ActiveStreams")
         if active:
+            # Prefer the actual Stream list when available
             streams = active.get("Stream")
-            if not streams:
-                return 0
-            return len(streams) if isinstance(streams, list) else 1
+            if streams:
+                return len(streams) if isinstance(streams, list) else 1
+            # Fallback: use ActiveStreamCount field
+            asc = active.get("ActiveStreamCount")
+            if asc is not None:
+                try:
+                    return int(asc)
+                except (ValueError, TypeError):
+                    pass
+        # Also check ActiveStreamCount at the wrapper level
+        asc = wrapper.get("ActiveStreamCount")
+        if asc is not None:
+            try:
+                return int(asc)
+            except (ValueError, TypeError):
+                pass
     return 0
 
 
