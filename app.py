@@ -153,21 +153,30 @@ def count_streams(data):
     """Extract stream count from an Exotel API response dict."""
     if data.get("error"):
         return 0
+
+    # Actual Exotel response: {"Streams": [{"ActiveStreamCount": 3, ...}]}
+    streams_list = data.get("Streams")
+    if isinstance(streams_list, list) and streams_list:
+        asc = streams_list[0].get("ActiveStreamCount")
+        if asc is not None:
+            try:
+                return int(asc)
+            except (ValueError, TypeError):
+                pass
+
+    # Legacy / alternative response shapes
     for wrapper in [data, data.get("TelephonyResponse", {})]:
         active = wrapper.get("ActiveStreams")
         if active:
-            # Prefer the actual Stream list when available
             streams = active.get("Stream")
             if streams:
                 return len(streams) if isinstance(streams, list) else 1
-            # Fallback: use ActiveStreamCount field
             asc = active.get("ActiveStreamCount")
             if asc is not None:
                 try:
                     return int(asc)
                 except (ValueError, TypeError):
                     pass
-        # Also check ActiveStreamCount at the wrapper level
         asc = wrapper.get("ActiveStreamCount")
         if asc is not None:
             try:

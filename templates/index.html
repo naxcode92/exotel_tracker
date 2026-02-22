@@ -512,25 +512,32 @@
         function parseStreams(data) {
             if (data.error) return { error: data.error, streams: [], count: 0 };
 
+            // Actual Exotel response: {"Streams": [{"ActiveStreamCount": 3, "ThrottleLimit": 50}]}
+            if (Array.isArray(data.Streams) && data.Streams.length) {
+                const asc = parseInt(data.Streams[0].ActiveStreamCount);
+                if (!isNaN(asc) && asc > 0) {
+                    return { streams: [], count: asc, countOnly: true, throttle: data.Streams[0].ThrottleLimit };
+                }
+                return { streams: [], count: 0 };
+            }
+
+            // Legacy / alternative response shapes
             const wrappers = [data];
             if (data.TelephonyResponse) wrappers.push(data.TelephonyResponse);
 
             for (const wrapper of wrappers) {
                 const active = wrapper.ActiveStreams;
                 if (active) {
-                    // Prefer the actual Stream list when available
                     const streams = active.Stream;
                     if (streams) {
                         const arr = Array.isArray(streams) ? streams : [streams];
                         return { streams: arr, count: arr.length };
                     }
-                    // Fallback: use ActiveStreamCount field
                     const asc = parseInt(active.ActiveStreamCount);
                     if (!isNaN(asc) && asc > 0) {
                         return { streams: [], count: asc, countOnly: true };
                     }
                 }
-                // Also check ActiveStreamCount at the wrapper level
                 const wsc = parseInt(wrapper.ActiveStreamCount);
                 if (!isNaN(wsc) && wsc > 0) {
                     return { streams: [], count: wsc, countOnly: true };
@@ -567,7 +574,8 @@
                 }
                 bodyHtml = `<div class="empty-state">No active streams${rawInfo}</div>`;
             } else if (parsed.countOnly) {
-                bodyHtml = `<div class="empty-state" style="color:#94a3b8;">${count} active stream${count !== 1 ? 's' : ''} (stream details not available from API)</div>`;
+                const throttleInfo = parsed.throttle != null ? ` / ${parsed.throttle} limit` : '';
+                bodyHtml = `<div class="empty-state" style="color:#e2e8f0; font-size:1.5rem; font-weight:600;">${count} active stream${count !== 1 ? 's' : ''}${throttleInfo}</div>`;
             } else {
                 bodyHtml = `
                     <div class="stream-list">
