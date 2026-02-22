@@ -628,8 +628,12 @@
                 let cardsHtml = '';
 
                 for (const [key, account] of Object.entries(data)) {
+                    // Use the count computed by the backend (authoritative)
+                    const count = account.count != null ? account.count : 0;
                     const parsed = parseStreams(account.data);
-                    const count = parsed.count != null ? parsed.count : (parsed.streams ? parsed.streams.length : 0);
+                    // Override parsed.count with backend value
+                    parsed.count = count;
+                    if (count > 0 && !parsed.streams.length) parsed.countOnly = true;
                     totalCount += count;
 
                     cardsHtml += renderAccountCard(key, account.label, parsed);

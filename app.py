@@ -278,11 +278,13 @@ def streams():
     counts = {}
     for key, account in ACCOUNTS.items():
         data = fetch_active_streams(account)
+        count = count_streams(data)
         results[key] = {
             "label": account["label"],
             "data": data,
+            "count": count,
         }
-        counts[key] = count_streams(data)
+        counts[key] = count
 
     # Log counts to DB on every fetch so history builds up in real time
     try:
