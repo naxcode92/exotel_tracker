@@ -15,6 +15,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ---------------------------------------------------------------------------
+# Logging — make sure scheduler/background logs are visible in server output
+# ---------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.secret_key = os.getenv("SECRET_KEY", secrets.token_hex(32))
@@ -23,8 +32,6 @@ app.secret_key = os.getenv("SECRET_KEY", secrets.token_hex(32))
 app.config["SESSION_COOKIE_SECURE"] = True
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-
-logger = logging.getLogger(__name__)
 
 
 @app.after_request
@@ -74,7 +81,12 @@ EXOTEL_BASE_URL = "https://api.in.exotel.com/v1/Accounts"
 # ---------------------------------------------------------------------------
 # SQLite for stream-count history
 # ---------------------------------------------------------------------------
-DB_PATH = os.getenv("DB_PATH", os.path.join(os.path.dirname(__file__), "data", "streams_history.db"))
+DB_PATH = os.getenv(
+    "DB_PATH",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "streams_history.db"),
+)
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+logger.info("Stream log DB path: %s", DB_PATH)
 
 
 def get_db():
@@ -158,6 +170,7 @@ def log_stream_counts():
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     try:
         conn = get_db()
+        logged = {}
         for key, account in ACCOUNTS.items():
             data = fetch_active_streams(account)
             count = count_streams(data)
@@ -165,6 +178,7 @@ def log_stream_counts():
                 "INSERT INTO stream_log (ts, account_key, stream_count) VALUES (?, ?, ?)",
                 (now, key, count),
             )
+            logged[key] = count
         # Prune entries older than 48 hours
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).strftime(
             "%Y-%m-%d %H:%M:%S"
@@ -172,13 +186,15 @@ def log_stream_counts():
         conn.execute("DELETE FROM stream_log WHERE ts < ?", (cutoff,))
         conn.commit()
         conn.close()
+        logger.info("[Scheduler] Logged stream counts at %s: %s", now, logged)
     except Exception:
-        logger.exception("Failed to log stream counts")
+        logger.exception("[Scheduler] Failed to log stream counts")
 
 
 scheduler = BackgroundScheduler(daemon=True)
 scheduler.add_job(log_stream_counts, "interval", minutes=1, misfire_grace_time=30)
 scheduler.start()
+logger.info("Background scheduler started — logging stream counts every 1 minute")
 
 # Log once at startup so the graph isn't empty
 log_stream_counts()
